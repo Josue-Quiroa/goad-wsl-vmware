@@ -6,7 +6,7 @@ Esto **no** reemplaza el README oficial. Es la lista de cosas que rompen el lab 
 
 - Lab: GOAD (sevenkingdoms / north / essos)
 - Provisioner: Ansible desde WSL (`~/GOAD/ansible`)
-- Targets: 5 Windows Server 2019 en VMware, red host-only `192.168.56.0/24` + NIC NAT para Internet
+- Targets: 5 Windows Server 2019 en VMware, red NAT  `192.168.56.0/24` + NIC NAT para Internet
 
 ## Por que existe este repo
 

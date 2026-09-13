@@ -1,36 +1,15 @@
-# Inventory de referencia
+# Como quedo el inventory
 
-Las IPs son **ejemplo**. Cambia `ansible_host` a la NIC lab de cada VM (la que pongas en VMware). `dict_key` no se toca.
+Copia de `~/GOAD/ansible/inventory.ini` al cerrar el lab.
 
-Passwords = `local_admin_password` de `ad/GOAD/data/config.json` del clone canonico. Si las editaste, usa las tuyas. No subas un ini con secretos distintos a un repo publico.
+Las IPs son las de **este** VMnet (`192.168.56.0/24`). Si el tuyo es otro, cambia solo `ansible_host`.
 
-```ini
-[all:vars]
-ansible_user=Administrator
-ansible_connection=winrm
-ansible_winrm_scheme=http
-ansible_port=5985
-ansible_winrm_transport=ntlm
-ansible_winrm_operation_timeout_sec=400
-ansible_winrm_read_timeout_sec=500
-data_path=../ad/GOAD/data
-domain_name=GOAD
-force_dns_server=no
-dns_server=1.1.1.1
-dns_server_forwarder=1.1.1.1
-enable_http_proxy=no
-keyboard_layouts=["en-US"]
-add_route=no
-admin_user=administrator
+Passwords = `local_admin_password` del `config.json` de GOAD. dc02, dc03 y srv03 quedaron en `ansible_winrm_transport=basic` despues de los 401 NTLM post-dominio.
 
-[windows]
-dc01 ansible_host=192.168.56.10 dns_domain=dc01 dict_key=dc01 ansible_password=8dCT-DJjgScp
-dc02 ansible_host=192.168.56.11 dns_domain=dc01 dict_key=dc02 ansible_password=NgtI75cKV+Pu ansible_winrm_transport=basic
-dc03 ansible_host=192.168.56.12 dns_domain=dc03 dict_key=dc03 ansible_password=Ufe-bVXSx9rk
-srv02 ansible_host=192.168.56.22 dns_domain=dc02 dict_key=srv02 ansible_password=NgtI75cKV+Pu
-srv03 ansible_host=192.168.56.23 dns_domain=dc03 dict_key=srv03 ansible_password=978i2pF43UJ-
-```
+`[mssql_ssms]` vacio: el installer de SSMS era un stub de 5 MB.
 
-El resto de grupos: [server], [adcs] (dc01 + srv03), [adcs_customtemplates] (dc03), [laps_dc] (dc03), [laps_server] (srv03). Ver README.
+`[laps_dc]` tiene los tres DC. El oficial solo pone dc03. LAPS peta igual por el bug de `mayContain`; no lo toque despues.
 
-`[mssql_ssms]` vacio a proposito (bootstrap SSMS ~5 MB en 2026).
+Archivo: [examples/inventory.ini](../examples/inventory.ini)
+
+`ansible.cfg` minimo, con lo que evito que ansible-core 2.19 mate los `when:` de GOAD: [examples/ansible.cfg](../examples/ansible.cfg)

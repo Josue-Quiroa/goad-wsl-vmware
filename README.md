@@ -21,7 +21,7 @@ Si el utility te detecta Workstation y `vagrant up` sale, no sigas esta guia. Us
 
 ## Las IPs no estan fijas
 
-Los `192.168.56.x` son ejemplo (VMnet host-only tipica). Cambia `ansible_host` a la NIC lab de cada VM. `dict_key` se queda como en `config.json`.
+Los `192.168.56.x` son las de **este** lab. Si tu VMnet es otra, cambia `ansible_host`. `dict_key` se queda como en `config.json`.
 
 ```mermaid
 flowchart TB
@@ -46,11 +46,11 @@ flowchart TB
 
 Dos NICs por maquina. La del lab sin gateway. La NAT con `1.1.1.1` / `8.8.8.8`. Si no, no hay NuGet ni media de SQL.
 
-## Mapa (ejemplo)
+## Mapa (este lab)
 
-Passwords = `local_admin_password` de `ad/GOAD/data/config.json`. Si las cambiaste, usa las tuyas.
+Passwords = `local_admin_password` de `ad/GOAD/data/config.json`.
 
-| host | nombre que pone GOAD | IP de ejemplo | dominio |
+| host | nombre que pone GOAD | IP | dominio |
 |---|---|---|---|
 | dc01 | kingslanding | 192.168.56.10 | sevenkingdoms.local |
 | dc02 | winterfell | 192.168.56.11 | north.sevenkingdoms.local |
@@ -58,37 +58,41 @@ Passwords = `local_admin_password` de `ad/GOAD/data/config.json`. Si las cambias
 | srv02 | castelblack | 192.168.56.22 | north.sevenkingdoms.local |
 | srv03 | braavos | 192.168.56.23 | essos.local |
 
-Claves del json canonico:
-
 - dc01 `8dCT-DJjgScp`
 - dc02 y srv02 `NgtI75cKV+Pu`
 - dc03 `Ufe-bVXSx9rk`
 - srv03 `978i2pF43UJ-`
 
-`Password1` solo vale antes de `settings/admin_password`. Despues el hostname task te tira 401 en las cinco.
+`Password1` solo vale antes de `settings/admin_password`.
+
+## Como quedaron los archivos
+
+Lo que use al final, sin limpiar:
+
+- [examples/inventory.ini](examples/inventory.ini)
+- [examples/ansible.cfg](examples/ansible.cfg)
+- notas: [docs/INVENTORY.md](docs/INVENTORY.md)
+
+dc02, dc03 y srv03 van con `ansible_winrm_transport=basic`. `[mssql_ssms]` vacio. `[laps_dc]` tiene los tres DC (el oficial solo pone dc03; LAPS peta igual).
 
 ## Inventory
-
-Plantilla en [docs/INVENTORY.md](docs/INVENTORY.md).
 
 `[all:vars]` es solo variables. Los hosts van en `[windows]`. Si los pegas en `all:vars`, Ansible se inventa la variable `dc01 ansible_host` y luego dice que NTLM no tiene password.
 
 - falta `dict_key` y `lab.hosts[dict_key]` no resuelve
 - el grupo es `[server]`, no `[servers]`
-- timeouts `400` / `500` (`read` mayor que `operation`)
-- `[adcs]`: dc01 y srv03. `[adcs_customtemplates]`: dc03. Sin CertSvc, ESC6 peta con `FILE_NOT_FOUND`
-- `[laps_dc]` oficial es dc03. Si metes los tres DC, LAPS en el hijo sale con referral/FSMO
+- timeouts `400` / `500`
+- `[adcs]`: dc01 y srv03. `[adcs_customtemplates]`: dc03
 
 ## ansible.cfg
 
+Lo importante:
+
 ```ini
-[defaults]
 allow_broken_conditionals = true
 ```
 
-o `export ANSIBLE_ALLOW_BROKEN_CONDITIONALS=true` si te ignora el cfg.
-
-Clona GOAD en `~/GOAD`, no en `/mnt/c`.
+El resto esta en [examples/ansible.cfg](examples/ansible.cfg). Clona GOAD en `~/GOAD`, no en `/mnt/c`.
 
 ## Orden
 
@@ -130,7 +134,7 @@ winrm set winrm/config/service '@{AllowUnencrypted="true"}'
 winrm set winrm/config/service/auth '@{Basic="true"}'
 ```
 
-y en dc02: `ansible_winrm_transport=basic`.
+y en el inventory: `ansible_winrm_transport=basic`.
 
 **LAPS.** `PSObject` / `mayContain`. Bug de `win_ad_object` ([GOAD#449](https://github.com/Orange-Cyberdefense/GOAD/issues/449)). Segui con `localusers.yml`.
 

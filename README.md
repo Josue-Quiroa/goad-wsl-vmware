@@ -2,7 +2,7 @@
 
 Tutorial para levantar [GOAD](https://github.com/Orange-Cyberdefense/GOAD) cuando Vagrant + VMware en Windows no arranca.
 
-En mi caso el corte fue [vagrant-vmware-desktop#177](https://github.com/hashicorp/vagrant-vmware-desktop/issues/177): el Vagrant VMware Utility no reconoce Workstation nueva. Sin utility no hay `vagrant up`.
+En mi caso el problema fue [vagrant-vmware-desktop#177](https://github.com/hashicorp/vagrant-vmware-desktop/issues/177): el Vagrant VMware Utility no reconoce VMware la ultima version. Sin utility no hay `vagrant up`.
 
 Plan B: cinco Server 2019 a mano en VMware y Ansible desde WSL2.
 

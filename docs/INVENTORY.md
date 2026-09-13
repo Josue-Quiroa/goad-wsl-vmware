@@ -1,6 +1,8 @@
-# Inventory de referencia (WSL + VMware)
+# Inventory de referencia
 
-Copia adaptada. Las passwords son las de `ad/GOAD/data/config.json` del GOAD canonico. Si las cambiaste en tu clone, usa las tuyas.
+Las IPs son **ejemplo**. Cambia `ansible_host` a la NIC lab de cada VM (la que pongas en VMware). `dict_key` no se toca.
+
+Passwords = `local_admin_password` de `ad/GOAD/data/config.json` del clone canonico. Si las editaste, usa las tuyas. No subas un ini con secretos distintos a un repo publico.
 
 ```ini
 [all:vars]
@@ -27,72 +29,8 @@ dc02 ansible_host=192.168.56.11 dns_domain=dc01 dict_key=dc02 ansible_password=N
 dc03 ansible_host=192.168.56.12 dns_domain=dc03 dict_key=dc03 ansible_password=Ufe-bVXSx9rk
 srv02 ansible_host=192.168.56.22 dns_domain=dc02 dict_key=srv02 ansible_password=NgtI75cKV+Pu
 srv03 ansible_host=192.168.56.23 dns_domain=dc03 dict_key=srv03 ansible_password=978i2pF43UJ-
-
-[domain]
-dc01
-dc02
-dc03
-srv02
-srv03
-
-[dc]
-dc01
-dc02
-dc03
-
-[parent_dc]
-dc01
-dc03
-
-[child_dc]
-dc02
-
-[server]
-srv02
-srv03
-
-[trust]
-dc01
-dc03
-
-[iis]
-srv03
-
-[mssql]
-srv02
-
-[mssql_ssms]
-
-[mssql_reporting]
-srv02
-
-[webdav]
-srv03
-
-[defender_off]
-dc01
-dc02
-dc03
-srv02
-srv03
-
-[laps_dc]
-dc03
-
-[laps_server]
-srv03
-
-[adcs]
-dc01
-srv03
-
-[adcs_customtemplates]
-dc03
 ```
 
-Notas:
+El resto de grupos: [server], [adcs] (dc01 + srv03), [adcs_customtemplates] (dc03), [laps_dc] (dc03), [laps_server] (srv03). Ver README.
 
-- `[mssql_ssms]` vacio a proposito (bootstrap SSMS de 5 MB en 2026).
-- `[laps_dc]` alineado al oficial (solo dc03). Meter dc01+dc02 provoca referral/FSMO.
-- dc02 lleva `ansible_winrm_transport=basic` porque NTLM HTTP se rompio tras el child domain.
-- Si dc03/srv03 empiezan a dar 401 NTLM, mismo parche `AllowUnencrypted` + `Basic` + transport basic.
+`[mssql_ssms]` vacio a proposito (bootstrap SSMS ~5 MB en 2026).

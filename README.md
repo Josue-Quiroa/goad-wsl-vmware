@@ -1,28 +1,85 @@
 # GOAD en WSL + VMware
 
-Notas de un provision real de [GOAD](https://github.com/Orange-Cyberdefense/GOAD) desde **WSL2** hacia VMs **VMware Workstation**, sin `goad.sh` y con un `inventory.ini` propio.
+Bitacora de un provision real de [GOAD](https://github.com/Orange-Cyberdefense/GOAD) **sin Vagrant**: VMs creadas a mano en VMware Workstation y Ansible corriendo desde **WSL2**.
 
-Esto **no** reemplaza el README oficial. Es la lista de cosas que rompen el lab si sales del camino de Orange-Cyberdefense.
-
-- Lab: GOAD (sevenkingdoms / north / essos)
-- Provisioner: Ansible desde WSL (`~/GOAD/ansible`)
-- Targets: 5 Windows Server 2019 en VMware, red NAT  `192.168.56.0/24` + NIC NAT para Internet
+No sustituye el README oficial. Documenta el camino que toca cuando el provider Vagrant/VMware en Windows no levanta y WSL se pone pesado.
 
 ## Por que existe este repo
 
-El inventario oficial es la cadena:
+El camino oficial en VMware es:
 
-```bash
-ansible-playbook -i ../ad/GOAD/data/inventory -i ../ad/GOAD/providers/<provider>/inventory main.yml
+1. Plugin `vagrant-vmware-desktop` + Vagrant VMware Utility en el **host Windows**
+2. `vagrant up` desde `ad/GOAD/providers/vmware` (`provider = vmware_desktop`)
+3. Ansible desde Linux (`goad.sh` o un controller VM)
+
+En la practica, en host Windows ese plugin **se rompe** o no aparece:
+
+- `The provider 'vmware_desktop' could not be found` ([GOAD#346](https://github.com/Orange-Cyberdefense/GOAD/issues/346))
+- conflictos de gems al instalar plugins ([GOAD#392](https://github.com/Orange-Cyberdefense/GOAD/issues/392))
+- utility/certificados, licencia, `force_vmware_license`
+- el plugin habla con VMware en el host; WSL **no** sustituye eso
+
+Cuando Vagrant no clona las cajas, la alternativa es: cinco VMs 2019 a mano + WinRM + inventory propio + Ansible desde WSL. Este repo es esa alternativa y los golpes que da.
+
+WSL, por su lado, no es inocente:
+
+- si clonas GOAD bajo `/mnt/c/...`, Ansible ignora `ansible.cfg` (*world writable directory*)
+- la IP de WSL2 no es la del host-only de VMware; el ping a las VMs sale por otra ruta
+- timeouts WinRM por defecto (30 s) se quedan cortos en un dcpromo
+- ansible-core >= 2.19 revienta los `when: two_adapters` de GOAD (strings `yes`/`no`)
+
+Si el plugin de Vagrant te funciona, usa el inventory oficial y `goad.sh`. Este texto es para cuando no.
+
+## Las IPs las pones tu
+
+`192.168.56.10` etc. son **ejemplo** (VMnet host-only tipica). Tu lab puede ser `192.168.100.0/24`, `10.10.10.0/24` o lo que pinte VMware Virtual Network Editor.
+
+Lo que tiene que cuadrar:
+
+| Dato | Donde |
+|---|---|
+| IP de cada VM (NIC del lab) | `ansible_host=` en `[windows]` |
+| Misma L3 entre WSL/host y esa NIC | ping + TCP 5985 |
+| `dict_key` | `dc01`..`srv03` como en `config.json` |
+| Password | `local_admin_password` de **tu** `config.json`, no un invento |
+
+No copies las IPs de esta guia si tu VMnet es otra. Cambia solo `ansible_host`.
+
+```mermaid
+flowchart TB
+  subgraph HOST["Host Windows"]
+    VMW[VMware Workstation]
+    WSL[WSL2 Ansible]
+  end
+
+  subgraph LAB["VMs - nombres GOAD, IPs tuyas"]
+    DC01[dc01 kingslanding]
+    DC02[dc02 winterfell]
+    DC03[dc03 meereen]
+    SRV02[srv02 castelblack]
+    SRV03[srv03 braavos]
+  end
+
+  subgraph NET["Dos NICs por VM"]
+    A[NIC lab / host-only - SIN gateway]
+    B[NIC NAT - gateway + DNS publico]
+  end
+
+  WSL -->|WinRM 5985 a ansible_host| LAB
+  VMW --> LAB
+  LAB --> A
+  LAB --> B
+  B -->|Internet| EXT[NuGet / media SQL]
+
+  X[Vagrant vmware_desktop en Windows]
+  X -.->|a menudo roto| VMW
 ```
 
-o `./goad.sh`. Un inventory inventado por un LLM (host lines en `[all:vars]`, grupos mal nombrados, `Password1` eterno) te cuesta horas de 401 NTLM, LAPS en el DC hijo y `certutil` sin CA.
+## Topologia de ejemplo
 
-Si puedes, usa el inventario oficial. Si ya vas por inventory propio, sigue esta guia.
+Sustituye la columna IP por la tuya. Las passwords son las del `config.json` **canonico** de GOAD; si las cambiaste, usa las tuyas.
 
-## Topologia
-
-| Inventory | Hostname GOAD | IP lab | Dominio | Password local/admin (config.json) |
+| Inventory | Hostname | IP de ejemplo | Dominio | local_admin_password |
 |---|---|---|---|---|
 | dc01 | kingslanding | 192.168.56.10 | sevenkingdoms.local | `8dCT-DJjgScp` |
 | dc02 | winterfell | 192.168.56.11 | north.sevenkingdoms.local | `NgtI75cKV+Pu` |
@@ -30,64 +87,66 @@ Si puedes, usa el inventario oficial. Si ya vas por inventory propio, sigue esta
 | srv02 | castelblack | 192.168.56.22 | north.sevenkingdoms.local | `NgtI75cKV+Pu` |
 | srv03 | braavos | 192.168.56.23 | essos.local | `978i2pF43UJ-` |
 
-Esas claves salen de `ad/GOAD/data/config.json` (`local_admin_password`). No uses `Password1` despues del rol `settings/admin_password`.
+Cada VM: **dos NICs**.
 
-Cada VM necesita **dos NICs**:
+- NIC lab: IP fija del inventario, **sin** gateway
+- NIC NAT: gateway del VMnet NAT + DNS `1.1.1.1,8.8.8.8`
 
-- Ethernet0: host-only `192.168.56.x`, **sin** gateway, DNS vacio o el DC del lab
-- Ethernet1: NAT con gateway (`192.168.56.2` en VMware) y DNS publico `1.1.1.1,8.8.8.8`
+Sin NAT no hay NuGet ni media de SQL.
 
-Sin NAT, NuGet / PowerShellGet / media de SQL no existen.
+## Fotos / capturas
+
+Si subes pantallazos al repo o a un writeup:
+
+- Tapa o recorta IPs reales, hostnames de tu PC, usuario Windows, rutas `/home/...` y hashes
+- No subas `inventory.ini` con passwords si el repo es publico (este README usa las del config.json publico de GOAD; las tuyas si las cambiaste no van aqui)
+- Preferible diagrama (Mermaid arriba) antes que un `ipconfig` entero
+- `PLAY RECAP` sin extra-vars en la linea de comando
+
+Los diagramas de este README no llevan IPs ni secretos de un lab concreto.
+
+```mermaid
+flowchart LR
+  subgraph VARS["all:vars - SOLO globales"]
+    U[ansible_user / connection / port / timeouts]
+  end
+
+  subgraph WIN["windows - aqui van los hosts"]
+    H["dc01 ansible_host=TU_IP dict_key=dc01"]
+  end
+
+  VARS -->|mal| X["host lines dentro de all:vars = inventory roto"]
+  WIN -->|bien| OK[ansible-inventory --host dc01]
+```
 
 ## Requisitos
 
-- WSL2 + Python venv de GOAD (`goad_env`)
-- Ansible collections del `requirements.yml`
-- VMware: 5 VMs 2019, WinRM HTTP `5985` abierto desde WSL
-- ansible-core reciente: en `ansible.cfg`:
+- WSL2 + venv GOAD. Mejor clonar en el FS de Linux (`~/GOAD`), no en `/mnt/c`
+- Collections de `requirements.yml`
+- 5x Server 2019 en VMware, WinRM HTTP 5985
+- `ansible.cfg`:
 
 ```ini
 [defaults]
 allow_broken_conditionals = true
 ```
 
-GOAD hace `set_fact: two_adapters="yes"` (string). ansible-core >= 2.19 exige booleanos en `when:`. Sin el flag mueres en `domain_controller`.
+GOAD guarda `two_adapters="yes"` como string. ansible-core >= 2.19 exige bool en `when:`.
 
 ```bash
 export ANSIBLE_ALLOW_BROKEN_CONDITIONALS=true
 ```
 
-si WSL te ignora el `ansible.cfg` (directorio world-writable).
+si Ansible ignora el cfg por directorio world-writable.
 
-## Inventory: reglas que no se negocian
+## Inventory
 
-`[all:vars]` **solo** variables globales. Las lineas de host van en un grupo (`[windows]`).
+`[all:vars]` = globales. Hosts = grupo `[windows]`. Plantilla: [docs/INVENTORY.md](docs/INVENTORY.md).
 
-```ini
-[all:vars]
-ansible_user=Administrator
-ansible_connection=winrm
-ansible_winrm_scheme=http
-ansible_port=5985
-ansible_winrm_transport=ntlm
-ansible_winrm_operation_timeout_sec=400
-ansible_winrm_read_timeout_sec=500
-data_path=../ad/GOAD/data
-domain_name=GOAD
-force_dns_server=no
-
-[windows]
-dc01 ansible_host=192.168.56.10 dns_domain=dc01 dict_key=dc01 ansible_password=8dCT-DJjgScp
-dc02 ansible_host=192.168.56.11 dns_domain=dc01 dict_key=dc02 ansible_password=NgtI75cKV+Pu ansible_winrm_transport=basic
-dc03 ansible_host=192.168.56.12 dns_domain=dc03 dict_key=dc03 ansible_password=Ufe-bVXSx9rk
-srv02 ansible_host=192.168.56.22 dns_domain=dc02 dict_key=srv02 ansible_password=NgtI75cKV+Pu
-srv03 ansible_host=192.168.56.23 dns_domain=dc03 dict_key=srv03 ansible_password=978i2pF43UJ-
-```
-
-- `dict_key` es obligatorio. Sin el, `lab.hosts[dict_key]` no resuelve.
-- El grupo oficial de servidores es `[server]`, no `[servers]`.
-- `read_timeout_sec` tiene que ser **mayor** que `operation_timeout_sec`.
-- Grupos ADCS oficiales:
+- `dict_key` obligatorio
+- grupo oficial `[server]`, no `[servers]`
+- `read_timeout_sec` > `operation_timeout_sec` (400/500)
+- ADCS oficial:
 
 ```ini
 [adcs]
@@ -98,11 +157,11 @@ srv03
 dc03
 ```
 
-Sin `[adcs]`, `adcs.yml` no instala CertSvc y ESC6 (`certutil -setreg policy\Editflags`) explota con `ERROR_FILE_NOT_FOUND`.
+Sin `[adcs]`, no hay CertSvc y ESC6 muere con `certutil ... FILE_NOT_FOUND`.
 
-No metas dc01/dc02 en `[laps_dc]` si el inventory oficial solo pone dc03. LAPS en el child DC acaba en *referral* / FSMO.
+`[laps_dc]` oficial es **dc03**. Meter dc01+dc02 = referral/FSMO.
 
-## Orden de playbooks (si no usas main.yml de un tiro)
+## Orden de playbooks
 
 ```bash
 cd ~/GOAD/ansible
@@ -125,128 +184,46 @@ ansible-playbook -i inventory.ini vulnerabilities.yml
 ansible-playbook -i inventory.ini reboot.yml
 ```
 
-`main.yml` es reentrante. Si peta una tarea, arregla esa causa y relanza el mismo playbook, no el universo.
+`main.yml` es reentrante. Arregla la causa y relanza ese playbook.
 
-## Trampas, en el orden en que aparecen
+## Trampas
 
-### 1. NuGet / PowerShellGet
+Detalle tabulado: [docs/ERRORES.md](docs/ERRORES.md).
 
-`No match was found for the specified search criteria for the provider 'NuGet'` = la VM no sale a Internet. No es Ansible. NAT + DNS publico en la NIC con gateway. La NIC `192.168.56.10` del lab no lleva GW.
+1. **NuGet** — la VM no sale a Internet. NAT + DNS en la NIC con gateway.
+2. **401 en hostname** — `admin_password` ya rotó Administrator. Inventory con `local_admin_password` por host.
+3. **Timeout / 401 en dc02** — child DC + NTLM HTTP a una IP. `AllowUnencrypted=true`, `Basic=true`, `ansible_winrm_transport=basic` en ese host. Timeouts 400/500.
+4. **LAPS PSObject / mayContain** — [GOAD#449](https://github.com/Orange-Cyberdefense/GOAD/issues/449). Seguir el lab.
+5. **ESC13** — falta `C:\setup` en ese host.
+6. **SQL SSEI 2026** — Microsoft retiro el web installer. Media offline `SQLEXPR_x64_ENU.exe` (~250 MB). El `sql_conf.ini` del rol puede traer Jinja (`//{%`); instala con flags. SSMS `aka.ms` baja un stub de ~5 MB: vacia `[mssql_ssms]`.
+7. **linux_domain skipped** — no hay VMs Linux. Normal.
 
-### 2. `settings/admin_password` y el 401 siguiente
-
-Ese rol pisa `Administrator` con `local_admin_password` de `config.json`. La tarea siguiente (`hostname`) abre **otra** sesion WinRM con lo que haya en el inventory. Si sigue `Password1`, NTLM dice *credentials were rejected* en las cinco a la vez.
-
-### 3. Child DC + WinRM muerto / 401
-
-Tras promover winterfell:
-
-- `whoami` local puede seguir viendose `winterfell\administrator`
-- `systeminfo` ya dice `Domain: north.sevenkingdoms.local`
-- NTLM a la IP a veces se cuelga en Kerberos/DC locator
-- Arreglo de lab (HTTP 5985):
-
-```powershell
-winrm set winrm/config/service '@{AllowUnencrypted="true"}'
-winrm set winrm/config/service/auth '@{Basic="true"}'
-```
-
-En inventory, `ansible_winrm_transport=basic` en ese host. Probar sin `-e`:
+## Comprobaciones
 
 ```bash
-ansible dc02 -i inventory.ini -m ansible.windows.win_ping
-```
-
-`read_timeout` 30 s es corto en un dcpromo. Usa 400/500.
-
-### 4. LAPS `mayContain` / `PSObject`
-
-Bug conocido (`win_ad_object`, [GOAD#449](https://github.com/Orange-Cyberdefense/GOAD/issues/449)). Los atributos `ms-Mcs-AdmPwd*` se crean; el enganche a la clase `computer` peta. Relanzar no lo cura. Sigue el lab. LAPS no es requisito del resto de escenarios.
-
-Replica parent-child se verifica en kingslanding:
-
-```text
-repadmin /showrepl
-```
-
-meereen (essos) no sale ahi: otro bosque.
-
-### 5. `C:\setup` y ESC13
-
-`vulns/adcs_esc13` copia a `C:\setup\esc13.ps1`. Si esa carpeta no existe (no paso SQL/LAPS por esa caja):
-
-```powershell
-New-Item -Path C:\setup -ItemType Directory -Force
-```
-
-### 6. SQL Express: el SSEI esta muerto (2026)
-
-GOAD pinnea
-
-`https://download.microsoft.com/download/7/f/8/7f8a9c43-8c8a-4f7c-9f92-83c18d96b681/SQL2019-SSEI-Expr.exe`
-
-Microsoft responde *This version of the installer is no longer supported*. En `/QUIET` parece un hang: proceso `sql_installer` a 0% CPU y `C:\setup\mssql\media` vacio.
-
-Media offline que si peso ~249 MB:
-
-`https://download.microsoft.com/download/7/c/1/7c14e92e-bdcb-4f89-b7cf-93543e7112d1/SQLEXPR_x64_ENU.exe`
-
-El `sql_conf.ini` que deja el rol puede traer Jinja (`//{%`). `setup.exe` muere con *syntax of argument "//{%"*. Instala con flags, no con ese ini:
-
-```powershell
-$setup = Get-ChildItem C:\setup\mssql\media -Recurse -Filter setup.exe | Select-Object -First 1
-& $setup.FullName `
-  /Q /ACTION=Install /IACCEPTSQLSERVERLICENSETERMS /UpdateEnabled=False `
-  /FEATURES=SQLENGINE /INSTANCENAME=SQLEXPRESS `
-  /TCPENABLED=1 /NPENABLED=1 `
-  /SQLSVCACCOUNT="NT AUTHORITY\SYSTEM" `
-  /SQLSYSADMINACCOUNTS="NORTH\Administrator" "CASTELBLACK\Administrator" `
-  /SECURITYMODE=SQL /SAPWD="NgtI75cKV+Pu"
-```
-
-Logs: `C:\Program Files\Microsoft SQL Server\150\Setup Bootstrap\Log\Summary.txt`
-
-Cuando `Get-Service MSSQL*` este `Running`:
-
-```bash
-ansible-playbook -i inventory.ini servers.yml
-```
-
-SSMS (`aka.ms/ssmsfullsetup`) en 2026 baja un bootstrap de ~5 MB, no los 700 MB. No bloquea escenarios. Vacia `[mssql_ssms]` si se queda colgado.
-
-### 7. `linux_domain` / no hosts matched
-
-Play de `vulnerabilities.yml` para extensiones Linux. Si no tienes esas VMs, el skip es correcto.
-
-## Comprobaciones rapidas
-
-```bash
-ansible-inventory -i inventory.ini --host dc01   # tiene que salir ansible_password + ansible_host
+ansible-inventory -i inventory.ini --host dc01
 ansible dc01,dc02,dc03,srv02,srv03 -i inventory.ini -m ansible.windows.win_ping
 ```
 
-En un DC, `systeminfo | findstr /I "Domain Workgroup"` (imagen en-US: la linea es `Domain:`, no `Dominio`).
-
-WinRM local vs remoto:
+En el DC (imagen en-US): `systeminfo | findstr /I "Domain Workgroup"` — la linea es `Domain:`, no `Dominio`.
 
 ```powershell
 Test-WSMan localhost
 winrm get winrm/config/service
-winrm e winrm/config/listener
 ```
 
-`curl` a `:5985` que responde `411 Length Required` = HTTPAPI vivo. El problema ya no es firewall.
+`curl` a `:5985` con `411 Length Required` = HTTPAPI vivo; deja el firewall.
 
-## Que se puede dejar a medias
+## Se puede dejar a medias
 
 | Pieza | Impacto |
 |---|---|
-| LAPS schema | Escenario LAPS. El bosque sigue |
-| SSMS | Solo GUI |
+| LAPS schema | Solo escenario LAPS |
+| SSMS | GUI |
 | linux_domain | No aplica |
-| Inventory no canonico en defender/laps | Cambia el escenario, no tumba AD |
+| defender/laps no canonico | Cambia el escenario, no tumba AD |
 
-## Creditos y limites
+## Creditos
 
-- Lab y roles: [Orange-Cyberdefense/GOAD](https://github.com/Orange-Cyberdefense/GOAD)
-- Estas notas documentan un install WSL+VMware concreto (septiembre 2026). URLs de Microsoft caducan. Revisa `config.json` de **tu** clone antes de copiar passwords.
+- Lab: [Orange-Cyberdefense/GOAD](https://github.com/Orange-Cyberdefense/GOAD)
+- Notas de un install WSL+VMware (sep 2026). URLs de Microsoft caducan. Revisa **tu** `config.json` antes de copiar passwords.
